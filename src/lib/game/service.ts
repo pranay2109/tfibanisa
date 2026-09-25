@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   dailyAttempts,
@@ -7,12 +7,15 @@ import {
   movieLeads,
   movies,
   people,
+  unlimitedRounds,
+  unlimitedStats,
   user,
   userStats,
 } from "@/db/schema";
 import {
   CLUE_KEYS,
   EMPTY_STATS,
+  EMPTY_UNLIMITED_STATS,
   GameError,
   MAX_GUESSES,
   applyGuess,
@@ -21,29 +24,155 @@ import {
   pickMovieId,
   puzzleNumber,
   updateStats,
+  updateUnlimitedStats,
   type AttemptStatus,
   type ClueKey,
   type Stats,
+  type UnlimitedStats,
 } from "./daily";
 
 export type Bilingual = { en: string; te: string };
 
-export type DailyView = {
-  puzzleId: number;
-  number: number;
-  date: string;
+// What the game screen needs for one round, in either mode.
+export type RoundView = {
+  roundId: number;
   status: AttemptStatus;
   maxGuesses: number;
   guesses: { id: number; title: Bilingual; correct: boolean }[];
   // Only the clues the player has unlocked so far.
   clues: { key: ClueKey; value: Bilingual }[];
-  // Filled in only once the game is over.
+  // Filled in only once the round is over.
   answer: { title: Bilingual; year: number } | null;
 };
+
+export type DailyView = RoundView & { number: number; date: string };
 
 export type MovieOption = { id: number; title: Bilingual; year: number };
 
 type Puzzle = typeof dailyPuzzles.$inferSelect;
+
+// A movie can be an answer only when it's reviewed (active) and every clue exists.
+const playable = and(
+  eq(movies.isActive, true),
+  eq(movies.hidden, false),
+  isNotNull(movies.directorId),
+  isNotNull(movies.musicDirectorId),
+  isNotNull(movies.emoji),
+  sql`exists (select 1 from ${movieLeads} where ${movieLeads.movieId} = ${movies.id})`,
+);
+
+// ---------------------------------------------------------------------------
+// Shared round logic
+// ---------------------------------------------------------------------------
+
+async function loadClues(movieId: number): Promise<Record<ClueKey, Bilingual>> {
+  const [movie] = await db.select().from(movies).where(eq(movies.id, movieId));
+  const crewIds = [movie.directorId, movie.musicDirectorId].filter((id): id is number => id !== null);
+  const crew = crewIds.length
+    ? await db.select().from(people).where(inArray(people.id, crewIds))
+    : [];
+  const leads = await db
+    .select({ nameEn: people.nameEn, nameTe: people.nameTe })
+    .from(movieLeads)
+    .innerJoin(people, eq(movieLeads.personId, people.id))
+    .where(eq(movieLeads.movieId, movieId))
+    .orderBy(asc(movieLeads.billingOrder));
+
+  const person = (id: number | null): Bilingual => {
+    const p = crew.find((c) => c.id === id);
+    return p ? { en: p.nameEn, te: p.nameTe } : { en: "?", te: "?" };
+  };
+
+  return {
+    year: { en: String(movie.year), te: String(movie.year) },
+    musicDirector: person(movie.musicDirectorId),
+    director: person(movie.directorId),
+    emoji: { en: movie.emoji ?? "?", te: movie.emoji ?? "?" },
+    leads: {
+      en: leads.map((l) => l.nameEn).join(", "),
+      te: leads.map((l) => l.nameTe).join(", "),
+    },
+  };
+}
+
+async function buildRoundView(
+  roundId: number,
+  answerId: number,
+  guesses: number[],
+  status: AttemptStatus,
+): Promise<RoundView> {
+  const guessed = guesses.length
+    ? await db
+        .select({ id: movies.id, en: movies.titleEn, te: movies.titleTe })
+        .from(movies)
+        .where(inArray(movies.id, guesses))
+    : [];
+
+  const clues = await loadClues(answerId);
+  const wrong = guesses.filter((id) => id !== answerId).length;
+  const shown = cluesRevealed(wrong, status);
+
+  let answer: RoundView["answer"] = null;
+  if (status !== "playing") {
+    const [m] = await db.select().from(movies).where(eq(movies.id, answerId));
+    answer = { title: { en: m.titleEn, te: m.titleTe }, year: m.year };
+  }
+
+  return {
+    roundId,
+    status,
+    maxGuesses: MAX_GUESSES,
+    guesses: guesses.map((id) => {
+      const m = guessed.find((g) => g.id === id)!;
+      return { id, title: { en: m.en, te: m.te }, correct: id === answerId };
+    }),
+    clues: CLUE_KEYS.slice(0, shown).map((key) => ({ key, value: clues[key] })),
+    answer,
+  };
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function assertMovieExists(tx: Tx, movieId: number) {
+  const [movie] = await tx.select({ id: movies.id }).from(movies).where(eq(movies.id, movieId));
+  if (!movie) throw new GameError("unknown_movie");
+}
+
+// Guess search: every movie is searchable. Exact substring matches come first, then close
+// spellings (English spellings of Telugu titles vary: "vaikunta"/"vaikuntha", "puspa"/"pushpa"),
+// then fame. Fuzzy matching uses pg_trgm and is skipped for very short queries.
+const FUZZY_THRESHOLD = 0.45;
+
+export async function searchMovies(query: string, limit = 8): Promise<MovieOption[]> {
+  const q = query.trim().slice(0, 60);
+  if (!q) return [];
+  const key = sql`lower(regexp_replace(${q}, '[[:space:][:punct:]]', '', 'g'))`;
+  const exact = sql`${movies.searchKey} like '%' || ${key} || '%'`;
+  const fuzzy = sql`word_similarity(${key}, ${movies.searchKey})`;
+  const fuzzyOk = [...q.replace(/[\s\p{P}]/gu, "")].length >= 3;
+
+  const rows = await db
+    .select({ id: movies.id, en: movies.titleEn, te: movies.titleTe, year: movies.year })
+    .from(movies)
+    .where(
+      and(
+        eq(movies.hidden, false),
+        fuzzyOk ? sql`(${exact} or ${fuzzy} >= ${FUZZY_THRESHOLD})` : exact,
+      ),
+    )
+    .orderBy(
+      desc(exact),
+      ...(fuzzyOk ? [desc(fuzzy)] : []),
+      desc(movies.popularity),
+      desc(movies.year),
+    )
+    .limit(limit);
+  return rows.map((r) => ({ id: r.id, title: { en: r.en, te: r.te }, year: r.year }));
+}
+
+// ---------------------------------------------------------------------------
+// Daily game
+// ---------------------------------------------------------------------------
 
 export async function getOrCreatePuzzle(date: string = indiaDate()): Promise<Puzzle> {
   const [existing] = await db
@@ -58,9 +187,9 @@ export async function getOrCreatePuzzle(date: string = indiaDate()): Promise<Puz
   let candidates = await db
     .select({ id: movies.id })
     .from(movies)
-    .where(and(eq(movies.isActive, true), notInArray(movies.id, used)));
+    .where(and(playable, notInArray(movies.id, used)));
   if (candidates.length === 0) {
-    candidates = await db.select({ id: movies.id }).from(movies).where(eq(movies.isActive, true));
+    candidates = await db.select({ id: movies.id }).from(movies).where(playable);
   }
 
   const movieId = pickMovieId(
@@ -77,44 +206,6 @@ export async function getOrCreatePuzzle(date: string = indiaDate()): Promise<Puz
   return puzzle;
 }
 
-async function loadClues(movieId: number): Promise<Record<ClueKey, Bilingual>> {
-  const [movie] = await db.select().from(movies).where(eq(movies.id, movieId));
-  const crew = await db
-    .select()
-    .from(people)
-    .where(inArray(people.id, [movie.directorId, movie.musicDirectorId]));
-  const leads = await db
-    .select({ nameEn: people.nameEn, nameTe: people.nameTe })
-    .from(movieLeads)
-    .innerJoin(people, eq(movieLeads.personId, people.id))
-    .where(eq(movieLeads.movieId, movieId))
-    .orderBy(asc(movieLeads.billingOrder));
-
-  const person = (id: number): Bilingual => {
-    const p = crew.find((c) => c.id === id)!;
-    return { en: p.nameEn, te: p.nameTe };
-  };
-
-  return {
-    year: { en: String(movie.year), te: String(movie.year) },
-    musicDirector: person(movie.musicDirectorId),
-    director: person(movie.directorId),
-    emoji: { en: movie.emoji, te: movie.emoji },
-    leads: {
-      en: leads.map((l) => l.nameEn).join(", "),
-      te: leads.map((l) => l.nameTe).join(", "),
-    },
-  };
-}
-
-export async function getMovieOptions(): Promise<MovieOption[]> {
-  const rows = await db
-    .select({ id: movies.id, en: movies.titleEn, te: movies.titleTe, year: movies.year })
-    .from(movies)
-    .orderBy(asc(movies.titleEn));
-  return rows.map((r) => ({ id: r.id, title: { en: r.en, te: r.te }, year: r.year }));
-}
-
 export async function getDailyView(userId: string): Promise<DailyView> {
   const puzzle = await getOrCreatePuzzle();
 
@@ -128,36 +219,8 @@ export async function getDailyView(userId: string): Promise<DailyView> {
     .from(dailyAttempts)
     .where(and(eq(dailyAttempts.userId, userId), eq(dailyAttempts.puzzleId, puzzle.id)));
 
-  const guessed = attempt.guesses.length
-    ? await db
-        .select({ id: movies.id, en: movies.titleEn, te: movies.titleTe })
-        .from(movies)
-        .where(inArray(movies.id, attempt.guesses))
-    : [];
-
-  const clues = await loadClues(puzzle.movieId);
-  const wrong = attempt.guesses.filter((id) => id !== puzzle.movieId).length;
-  const shown = cluesRevealed(wrong, attempt.status);
-
-  let answer: DailyView["answer"] = null;
-  if (attempt.status !== "playing") {
-    const [m] = await db.select().from(movies).where(eq(movies.id, puzzle.movieId));
-    answer = { title: { en: m.titleEn, te: m.titleTe }, year: m.year };
-  }
-
-  return {
-    puzzleId: puzzle.id,
-    number: puzzleNumber(puzzle.puzzleDate),
-    date: puzzle.puzzleDate,
-    status: attempt.status,
-    maxGuesses: MAX_GUESSES,
-    guesses: attempt.guesses.map((id) => {
-      const m = guessed.find((g) => g.id === id)!;
-      return { id, title: { en: m.en, te: m.te }, correct: id === puzzle.movieId };
-    }),
-    clues: CLUE_KEYS.slice(0, shown).map((key) => ({ key, value: clues[key] })),
-    answer,
-  };
+  const view = await buildRoundView(puzzle.id, puzzle.movieId, attempt.guesses, attempt.status);
+  return { ...view, number: puzzleNumber(puzzle.puzzleDate), date: puzzle.puzzleDate };
 }
 
 export async function submitGuess(
@@ -179,9 +242,7 @@ export async function submitGuess(
       .from(dailyAttempts)
       .where(and(eq(dailyAttempts.userId, userId), eq(dailyAttempts.puzzleId, puzzle.id)))
       .for("update");
-
-    const [movie] = await tx.select({ id: movies.id }).from(movies).where(eq(movies.id, movieId));
-    if (!movie) throw new GameError("unknown_movie");
+    await assertMovieExists(tx, movieId);
 
     const result = applyGuess(attempt.guesses, movieId, puzzle.movieId);
     const finished = result.status !== "playing";
@@ -270,4 +331,117 @@ export async function getTodaySummary(userId: string): Promise<TodaySummary> {
     return { number, status: "not_started", guessCount: 0 };
   }
   return { number, status: attempt.status, guessCount: attempt.guesses.length };
+}
+
+// ---------------------------------------------------------------------------
+// Unlimited mode
+// ---------------------------------------------------------------------------
+
+// Skip the last N answers this player saw so rounds don't repeat quickly.
+const RECENT_ROUNDS = 100;
+
+async function pickUnlimitedMovie(tx: Tx, userId: string): Promise<number> {
+  // Never serve today's daily answer: that would spoil the daily game.
+  const today = await getOrCreatePuzzle();
+  const recent = tx
+    .select({ id: unlimitedRounds.movieId })
+    .from(unlimitedRounds)
+    .where(eq(unlimitedRounds.userId, userId))
+    .orderBy(desc(unlimitedRounds.id))
+    .limit(RECENT_ROUNDS);
+
+  const pick = (extra?: ReturnType<typeof and>) =>
+    tx
+      .select({ id: movies.id })
+      .from(movies)
+      .where(and(playable, ne(movies.id, today.movieId), extra))
+      .orderBy(sql`random()`)
+      .limit(1);
+
+  const [fresh] = await pick(notInArray(movies.id, recent));
+  if (fresh) return fresh.id;
+  // Played through the whole pool recently; allow repeats.
+  const [any] = await pick();
+  if (!any) throw new Error("No playable movies for unlimited mode");
+  return any.id;
+}
+
+async function latestRound(tx: Tx | typeof db, userId: string, lock = false) {
+  const q = tx
+    .select()
+    .from(unlimitedRounds)
+    .where(eq(unlimitedRounds.userId, userId))
+    .orderBy(desc(unlimitedRounds.id))
+    .limit(1);
+  const [row] = lock ? await q.for("update") : await q;
+  return row ?? null;
+}
+
+async function viewOf(round: typeof unlimitedRounds.$inferSelect): Promise<RoundView> {
+  return buildRoundView(round.id, round.movieId, round.guesses, round.status);
+}
+
+// The player's current round: the one in progress, or the last finished one (so its result
+// stays on screen until they ask for the next film). Creates the first round on first visit.
+export async function getUnlimitedView(userId: string): Promise<RoundView> {
+  const round = await latestRound(db, userId);
+  if (round) return viewOf(round);
+  return startUnlimitedRound(userId);
+}
+
+export async function startUnlimitedRound(userId: string): Promise<RoundView> {
+  const round = await db.transaction(async (tx) => {
+    // Serialise per user so a double tap on "Next film" can't open two rounds.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`unlimited:${userId}`}))`);
+    const current = await latestRound(tx, userId);
+    if (current?.status === "playing") return current;
+    const movieId = await pickUnlimitedMovie(tx, userId);
+    const [created] = await tx.insert(unlimitedRounds).values({ userId, movieId }).returning();
+    return created;
+  });
+  return viewOf(round);
+}
+
+export async function submitUnlimitedGuess(
+  userId: string,
+  roundId: number,
+  movieId: number,
+): Promise<RoundView> {
+  const round = await db.transaction(async (tx) => {
+    const current = await latestRound(tx, userId, true);
+    if (!current || current.id !== roundId) throw new GameError("expired");
+    await assertMovieExists(tx, movieId);
+
+    const result = applyGuess(current.guesses, movieId, current.movieId);
+    const finished = result.status !== "playing";
+    const [updated] = await tx
+      .update(unlimitedRounds)
+      .set({
+        guesses: result.guesses,
+        status: result.status,
+        finishedAt: finished ? new Date() : null,
+      })
+      .where(eq(unlimitedRounds.id, current.id))
+      .returning();
+
+    if (finished) {
+      const [row] = await tx
+        .select()
+        .from(unlimitedStats)
+        .where(eq(unlimitedStats.userId, userId))
+        .for("update");
+      const next = updateUnlimitedStats(row ?? EMPTY_UNLIMITED_STATS, result.status === "won");
+      await tx
+        .insert(unlimitedStats)
+        .values({ userId, ...next })
+        .onConflictDoUpdate({ target: unlimitedStats.userId, set: next });
+    }
+    return updated;
+  });
+  return viewOf(round);
+}
+
+export async function getUnlimitedStats(userId: string): Promise<UnlimitedStats> {
+  const [row] = await db.select().from(unlimitedStats).where(eq(unlimitedStats.userId, userId));
+  return row ?? EMPTY_UNLIMITED_STATS;
 }

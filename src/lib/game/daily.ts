@@ -123,6 +123,31 @@ export function updateStats(
   };
 }
 
+export type UnlimitedStats = {
+  played: number;
+  wins: number;
+  currentStreak: number;
+  maxStreak: number;
+};
+
+export const EMPTY_UNLIMITED_STATS: UnlimitedStats = {
+  played: 0,
+  wins: 0,
+  currentStreak: 0,
+  maxStreak: 0,
+};
+
+// Unlimited streaks count wins in a row, with no calendar involved.
+export function updateUnlimitedStats(stats: UnlimitedStats, won: boolean): UnlimitedStats {
+  const currentStreak = won ? stats.currentStreak + 1 : 0;
+  return {
+    played: stats.played + 1,
+    wins: stats.wins + (won ? 1 : 0),
+    currentStreak,
+    maxStreak: Math.max(stats.maxStreak, currentStreak),
+  };
+}
+
 export function shareText(opts: {
   number: number;
   status: "won" | "lost";

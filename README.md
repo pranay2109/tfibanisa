@@ -1,6 +1,6 @@
 # TFI Banisa
 
-Daily Tollywood movie games in Telugu and English. The first game is **Guess the Movie**: one film a day, five clues, six guesses.
+Daily Tollywood movie games in Telugu and English. **Guess the Movie**: five clues, six guesses. Play the daily film (one per day, streaks, leaderboard) or **Unlimited** (back-to-back random films, separate stats).
 
 **Stack:** Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · next-intl (`/te`, `/en`) · Postgres + Drizzle ORM · Better Auth (Google login) · Vitest · GitHub Actions · Vercel.
 
@@ -28,7 +28,8 @@ Login is Google-only. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env
 | `pnpm lint` / `pnpm typecheck` | ESLint / TypeScript |
 | `pnpm db:generate` | Create a migration after editing `src/db/schema.ts` |
 | `pnpm db:migrate` | Apply migrations |
-| `pnpm db:seed` | Load/refresh the starter movie list (safe to re-run) |
+| `pnpm db:seed` | Load/refresh the hand-made starter movie list (safe to re-run) |
+| `pnpm db:import` | Import Telugu films from Wikidata (`--dry-run` to preview, `--refresh` to re-download) |
 | `pnpm db:studio` | Browse the database in the browser |
 
 ## Project layout
@@ -58,6 +59,21 @@ Google Cloud Console → APIs & Services → Credentials → OAuth client ID (We
 - Authorized redirect URI: `http://localhost:3000/api/auth/callback/google`
 
 While the consent screen is in **Testing**, only listed test users can log in.
+
+## Movie data
+
+- `pnpm db:seed` loads ~50 hand-checked films with emoji clues. These are the daily answers today.
+- `pnpm db:import` adds ~5,300 Telugu films from **Wikidata** (CC0, free for commercial use). Every imported film is **searchable** but **inactive**: it can't be an answer until someone reviews it, adds an emoji clue and sets `is_active = true`.
+- An answer needs: active, not hidden, director, music director, emoji and at least one lead.
+- Import rules: it matches existing films by Wikidata id, then by English/Telugu title (year ±1). It **only fills empty fields** and never overwrites your edits. Leads come from Wikidata's cast order (the Wikipedia "Starring" order). Duplicate Wikidata items are merged, and near-copies of reviewed films are hidden from search (the import prints them).
+- `original_languages` shows e.g. `{ta,te}` for Tamil films with a Telugu version. Use it to skip non-Telugu films in review.
+- Wikidata answers are cached in `.cache/wikidata/`. A full fresh run takes ~4 minutes.
+- Search is fuzzy (pg_trgm), so "alavaikunta" finds *Ala Vaikunthapurramuloo* and "puspa" finds *Pushpa*.
+
+## Unlimited mode
+
+- Random reviewed films, one round after another. It never serves today's daily answer (so it can't spoil it) and avoids the player's last 100 films.
+- It has its own stats (`unlimited_stats`, streak = wins in a row) and doesn't affect the daily streak or leaderboard.
 
 ## How the daily game works
 

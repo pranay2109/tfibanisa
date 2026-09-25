@@ -43,3 +43,6 @@ next-env.d.ts
 # keep the template env file
 !.env.example
 .neon
+
+# Wikidata import cache
+/.cache

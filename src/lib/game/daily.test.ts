@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_STATS,
+  EMPTY_UNLIMITED_STATS,
   GameError,
   MAX_GUESSES,
   addDays,
@@ -11,6 +12,7 @@ import {
   puzzleNumber,
   shareText,
   updateStats,
+  updateUnlimitedStats,
 } from "./daily";
 
 describe("applyGuess", () => {
@@ -109,6 +111,16 @@ describe("updateStats", () => {
     const day1 = updateStats(EMPTY_STATS, { date: "2026-10-01", status: "won", guessCount: 1 });
     const day2 = updateStats(day1, { date: "2026-10-02", status: "lost", guessCount: MAX_GUESSES });
     expect(day2).toMatchObject({ played: 2, wins: 1, currentStreak: 0, maxStreak: 1 });
+  });
+});
+
+describe("updateUnlimitedStats", () => {
+  it("counts wins in a row and resets on a loss", () => {
+    let s = updateUnlimitedStats(EMPTY_UNLIMITED_STATS, true);
+    s = updateUnlimitedStats(s, true);
+    expect(s).toMatchObject({ played: 2, wins: 2, currentStreak: 2, maxStreak: 2 });
+    s = updateUnlimitedStats(s, false);
+    expect(s).toMatchObject({ played: 3, wins: 2, currentStreak: 0, maxStreak: 2 });
   });
 });
 

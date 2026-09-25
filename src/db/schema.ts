@@ -88,26 +88,50 @@ export const people = pgTable("people", {
   slug: text("slug").notNull().unique(),
   nameEn: text("name_en").notNull(),
   nameTe: text("name_te").notNull(),
+  // e.g. "Q3595143". Null for people added by hand.
+  wikidataId: text("wikidata_id").unique(),
+  // Number of Wikipedia language editions with an article. A free fame score.
+  popularity: integer("popularity").notNull().default(0),
 });
 
-export const movies = pgTable("movies", {
-  id: serial("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
-  titleEn: text("title_en").notNull(),
-  titleTe: text("title_te").notNull(),
-  year: integer("year").notNull(),
-  directorId: integer("director_id")
-    .notNull()
-    .references(() => people.id),
-  musicDirectorId: integer("music_director_id")
-    .notNull()
-    .references(() => people.id),
-  // Our own emoji "plot" clue, e.g. "🪰💔🔪".
-  emoji: text("emoji").notNull(),
-  // Inactive movies stay in search but are never picked as a daily answer.
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+// Lowercase, no spaces or punctuation. Telugu vowel signs are kept.
+const searchKeySql = (col: string) =>
+  sql.raw(`lower(regexp_replace(${col}, '[[:space:][:punct:]]', '', 'g'))`);
+
+export const movies = pgTable(
+  "movies",
+  {
+    id: serial("id").primaryKey(),
+    slug: text("slug").notNull().unique(),
+    titleEn: text("title_en").notNull(),
+    titleTe: text("title_te").notNull(),
+    year: integer("year").notNull(),
+    // Credits and emoji can be missing on imported movies until someone fills them in.
+    directorId: integer("director_id").references(() => people.id),
+    musicDirectorId: integer("music_director_id").references(() => people.id),
+    // Our own emoji "plot" clue, e.g. "🪰💔🔪".
+    emoji: text("emoji"),
+    wikidataId: text("wikidata_id").unique(),
+    popularity: integer("popularity").notNull().default(0),
+    // Original languages from Wikidata, primary first, e.g. {te} or {ta,te} for a Tamil film
+    // with a Telugu version. Helps spot non-Telugu films during review.
+    originalLanguages: text("original_languages").array(),
+    searchKey: text("search_key").generatedAlwaysAs(
+      sql`${searchKeySql("title_en")} || ' ' || ${searchKeySql("title_te")}`,
+    ),
+    // Only active movies with every clue filled in can be a daily answer.
+    isActive: boolean("is_active").notNull().default(true),
+    // Hidden movies are left out of search too: e.g. a low-quality Wikidata copy of a film we
+    // already have. Set by the import (see scripts/import-wikidata.ts) or by hand.
+    hidden: boolean("hidden").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("movies_popularity_idx").on(t.popularity),
+    // Speeds up both the substring and the fuzzy (pg_trgm) guess search.
+    index("movies_search_key_trgm_idx").using("gin", t.searchKey.op("gin_trgm_ops")),
+  ],
+);
 
 // Lead actors, in billing order.
 export const movieLeads = pgTable(
@@ -161,6 +185,42 @@ export const dailyAttempts = pgTable(
     index("daily_attempts_puzzle_status_idx").on(t.puzzleId, t.status),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// Unlimited mode: back-to-back rounds with random movies. Kept apart from the
+// daily game so it can't inflate daily streaks or the leaderboard.
+// ---------------------------------------------------------------------------
+
+export const unlimitedRounds = pgTable(
+  "unlimited_rounds",
+  {
+    id: serial("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    movieId: integer("movie_id")
+      .notNull()
+      .references(() => movies.id),
+    guesses: jsonb("guesses").$type<number[]>().notNull().default(sql`'[]'::jsonb`),
+    status: text("status", { enum: ["playing", "won", "lost"] })
+      .notNull()
+      .default("playing"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => [index("unlimited_rounds_user_idx").on(t.userId, t.id)],
+);
+
+export const unlimitedStats = pgTable("unlimited_stats", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  played: integer("played").notNull().default(0),
+  wins: integer("wins").notNull().default(0),
+  // Wins in a row, across rounds.
+  currentStreak: integer("current_streak").notNull().default(0),
+  maxStreak: integer("max_streak").notNull().default(0),
+});
 
 export const userStats = pgTable("user_stats", {
   userId: text("user_id")

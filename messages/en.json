@@ -39,7 +39,10 @@
     "winRate": "Win %",
     "streak": "Streak",
     "maxStreak": "Best streak",
-    "distribution": "Guess distribution"
+    "distribution": "Guess distribution",
+    "unlimitedTitle": "Unlimited mode",
+    "unlimitedText": "Play as many films as you like. Your best: {max} in a row.",
+    "unlimitedCta": "Play unlimited"
   },
   "daily": {
     "title": "Guess the Movie",
@@ -70,7 +73,8 @@
       "unknown_movie": "Pick a movie from the list.",
       "expired": "A new day, a new movie! Reloading…",
       "generic": "Something went wrong. Please try again."
-    }
+    },
+    "keepPlaying": "Keep playing →"
   },
   "leaderboard": {
     "title": "Today's leaderboard",
@@ -80,5 +84,12 @@
     "player": "Player",
     "guesses": "Guesses",
     "time": "Time"
+  },
+  "unlimited": {
+    "title": "Unlimited",
+    "inARow": "in a row",
+    "solved": "{wins}/{played} solved",
+    "nextFilm": "Next film →",
+    "note": "Unlimited games don't count towards your daily streak or the leaderboard."
   }
 }

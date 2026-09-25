@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getTranslations, setRequestLocale } from "next-intl/server";
 import { requireUser } from "@/lib/auth";
-import { getDailyView, getMovieOptions } from "@/lib/game/service";
+import { getDailyView } from "@/lib/game/service";
 import { DailyGame } from "./daily-game";
 
 export async function generateMetadata({ params }: PageProps<"/[locale]/games/daily">): Promise<Metadata> {
@@ -14,13 +14,7 @@ export default async function DailyPage({ params }: PageProps<"/[locale]/games/d
   const { locale } = await params;
   setRequestLocale(locale);
   const user = await requireUser(locale);
-  const [view, options] = await Promise.all([getDailyView(user.id), getMovieOptions()]);
+  const view = await getDailyView(user.id);
 
-  return (
-    <DailyGame
-      initialView={view}
-      options={options}
-      siteUrl={process.env.BETTER_AUTH_URL ?? "https://tfibanisa.app"}
-    />
-  );
+  return <DailyGame initialView={view} siteUrl={process.env.BETTER_AUTH_URL ?? "https://tfibanisa.app"} />;
 }
