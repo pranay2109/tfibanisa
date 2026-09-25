@@ -1,0 +1,90 @@
+{
+  "common": {
+    "appName": "TFI Banisa",
+    "tagline": "Daily games for Tollywood addicts",
+    "login": "Log in",
+    "logout": "Log out",
+    "dashboard": "Dashboard",
+    "play": "Play",
+    "leaderboard": "Leaderboard",
+    "switchLanguage": "తెలుగు",
+    "disclaimer": "Fan-made. Not affiliated with any film studio, producer or actor."
+  },
+  "home": {
+    "title": "How big a TFI Banisa are you?",
+    "subtitle": "One Telugu movie a day. Five clues. Six guesses. Keep your streak alive and top the leaderboard.",
+    "cta": "Play today's movie",
+    "step1": "Start with one clue: the release year.",
+    "step2": "Each wrong guess unlocks a new clue: music director, director, emoji story, lead actors.",
+    "step3": "Guess in as few tries as you can and share your score on WhatsApp."
+  },
+  "login": {
+    "title": "Log in to play",
+    "subtitle": "Save your streak and get on the leaderboard.",
+    "google": "Continue with Google",
+    "or": "or",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "sendLink": "Email me a login link",
+    "sending": "Sending…",
+    "sent": "Check your inbox. We sent a login link to {email}.",
+    "error": "Something went wrong. Please try again."
+  },
+  "dashboard": {
+    "welcome": "Welcome back, {name}",
+    "todayTitle": "Today's movie #{number}",
+    "notPlayed": "You haven't played today's movie yet.",
+    "inProgress": "You're mid-game. {left} guesses left.",
+    "won": "Solved in {guesses}/6 🎉",
+    "lost": "Missed it today. Try again tomorrow.",
+    "playNow": "Play now",
+    "continue": "Continue",
+    "viewResult": "See result",
+    "statsTitle": "Your stats",
+    "played": "Played",
+    "winRate": "Win %",
+    "streak": "Streak",
+    "maxStreak": "Best streak",
+    "distribution": "Guess distribution"
+  },
+  "daily": {
+    "title": "Guess the Movie",
+    "number": "#{number}",
+    "clues": "Clues",
+    "clue": {
+      "year": "Release year",
+      "musicDirector": "Music director",
+      "director": "Director",
+      "emoji": "Emoji story",
+      "leads": "Lead actors"
+    },
+    "lockedClue": "Unlocks after a wrong guess",
+    "guessPlaceholder": "Type a movie name…",
+    "submit": "Guess",
+    "guessesLeft": "{left, plural, one {# guess left} other {# guesses left}}",
+    "yourGuesses": "Your guesses",
+    "won": "Correct! You got it in {guesses}/6.",
+    "lost": "Out of guesses.",
+    "answerWas": "The movie was {title} ({year}).",
+    "share": "Share result",
+    "copied": "Copied! Paste it in WhatsApp.",
+    "comeBack": "A new movie drops every day at midnight (IST).",
+    "noMatch": "No movie with that name in our list yet.",
+    "errors": {
+      "duplicate": "You already guessed that one.",
+      "finished": "Today's game is already over.",
+      "unknown_movie": "Pick a movie from the list.",
+      "expired": "A new day, a new movie! Reloading…",
+      "generic": "Something went wrong. Please try again."
+    }
+  },
+  "leaderboard": {
+    "title": "Today's leaderboard",
+    "subtitle": "Fewest guesses first, then fastest time.",
+    "empty": "No winners yet today. Be the first!",
+    "rank": "#",
+    "player": "Player",
+    "guesses": "Guesses",
+    "time": "Time"
+  }
+}

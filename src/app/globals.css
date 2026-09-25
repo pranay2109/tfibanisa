@@ -1,26 +1,31 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* One dark "cinema hall" theme. Tokens become Tailwind utilities, e.g. bg-panel, text-gold. */
+@theme {
+  --color-ink: #100d0b;
+  --color-panel: #1b1714;
+  --color-panel-2: #251f1b;
+  --color-line: #342c26;
+  --color-muted: #a89d90;
+  --color-text: #f6f0e7;
+  --color-gold: #f3b53a;
+  --color-gold-strong: #d99613;
+  --color-hit: #3fb67a;
+  --color-miss: #e0574b;
+
+  --font-sans: var(--font-noto), ui-sans-serif, system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-ink);
+  color: var(--color-text);
+}
+
+/* Telugu glyphs sit taller than Latin ones; give lines more room. */
+:lang(te) {
+  line-height: 1.7;
 }

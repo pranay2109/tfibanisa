@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tfibanisa
+          POSTGRES_PASSWORD: tfibanisa
+          POSTGRES_DB: tfibanisa
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U tfibanisa"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgres://tfibanisa:tfibanisa@localhost:5433/tfibanisa
+      BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else
+      BETTER_AUTH_URL: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      # drizzle.config.ts and the seed read .env.local; give them the CI values.
+      - name: Write .env.local
+        run: env | grep -E '^(DATABASE_URL|BETTER_AUTH_SECRET|BETTER_AUTH_URL)=' > .env.local
+
+      - name: Migrations apply cleanly
+        run: pnpm db:migrate
+
+      - name: Schema matches migrations
+        run: |
+          pnpm db:generate --name ci-check
+          if [ -n "$(git status --porcelain drizzle)" ]; then
+            echo "::error::src/db/schema.ts has changes with no migration. Run 'pnpm db:generate' and commit the result."
+            git status --porcelain drizzle
+            exit 1
+          fi
+
+      - name: Seed data loads
+        run: pnpm db:seed
+
+      - name: Production build
+        run: pnpm build

@@ -1,0 +1,20 @@
+# Local Postgres for development. Production uses Neon.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: tfibanisa
+      POSTGRES_PASSWORD: tfibanisa
+      POSTGRES_DB: tfibanisa
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tfibanisa"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
