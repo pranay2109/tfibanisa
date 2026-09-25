@@ -2,7 +2,7 @@
 
 Daily Tollywood movie games in Telugu and English. The first game is **Guess the Movie**: one film a day, five clues, six guesses.
 
-**Stack:** Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · next-intl (`/te`, `/en`) · Postgres + Drizzle ORM · Better Auth (Google + email magic link) · Resend · Vitest · GitHub Actions · Vercel.
+**Stack:** Next.js 16 (App Router) · TypeScript · Tailwind CSS 4 · next-intl (`/te`, `/en`) · Postgres + Drizzle ORM · Better Auth (Google login) · Vitest · GitHub Actions · Vercel.
 
 ## Run it locally
 
@@ -17,8 +17,7 @@ pnpm db:seed                      # ~50 movies
 pnpm dev                          # http://localhost:3000
 ```
 
-Without `RESEND_API_KEY`, login links are printed in the `pnpm dev` terminal. Open the link to log in.
-Without Google keys, the Google button is hidden.
+Login is Google-only. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env.local` (see "Google login" below), or the login page will say it isn't set up.
 
 ## Scripts
 
@@ -52,6 +51,14 @@ messages/en.json, te.json   all UI text
 drizzle/                    SQL migrations (commit these)
 ```
 
+## Google login
+
+Google Cloud Console → APIs & Services → Credentials → OAuth client ID (Web application):
+- Authorized JavaScript origin: `http://localhost:3000`
+- Authorized redirect URI: `http://localhost:3000/api/auth/callback/google`
+
+While the consent screen is in **Testing**, only listed test users can log in.
+
 ## How the daily game works
 
 - The day's puzzle uses the India-time date (`Asia/Kolkata`). The first request of the day picks a movie that hasn't been an answer before. The pick is deterministic per date, and a unique index stops two picks racing.
@@ -64,12 +71,11 @@ drizzle/                    SQL migrations (commit these)
 
 1. **Database:** create a Neon project (region: Singapore, `ap-southeast-1`, the closest to India). Copy the **pooled** connection string.
 2. **Vercel:** import the GitHub repo. It's a business, so use the **Pro** plan. Set these environment variables for Production and Preview:
-   `DATABASE_URL`, `BETTER_AUTH_SECRET` (a new one, not your local one), `BETTER_AUTH_URL=https://tfibanisa.app`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `RESEND_API_KEY`, `EMAIL_FROM`.
+   `DATABASE_URL`, `BETTER_AUTH_SECRET` (a new one, not your local one), `BETTER_AUTH_URL=https://tfibanisa.app`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`.
    Set the Vercel function region to `bom1` (Mumbai).
 3. **Migrations:** run `DATABASE_URL=<neon url> pnpm db:migrate && pnpm db:seed` once, and again whenever `drizzle/` changes. (Later: move this into a deploy workflow.)
-4. **Google login:** in Google Cloud Console, create an OAuth client and add the redirect URI `https://tfibanisa.app/api/auth/callback/google`.
-5. **Email:** in Resend, add and verify `tfibanisa.app` (it gives you DNS records to add in Cloudflare).
-6. **Domain:** in Vercel → Domains, add `tfibanisa.app`, then add the records it shows in Cloudflare DNS (set them to "DNS only", not proxied).
+4. **Google login:** on the existing OAuth client in Google Cloud Console, add origin `https://tfibanisa.app` and redirect URI `https://tfibanisa.app/api/auth/callback/google`. Reset the client secret and use the new one in Vercel. Then click **Publish app** on the consent screen so anyone can log in, not only test users.
+5. **Domain:** in Vercel → Domains, add `tfibanisa.app`, then add the records it shows in Cloudflare DNS (set them to "DNS only", not proxied).
 
 ## Before launch
 

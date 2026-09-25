@@ -22,13 +22,7 @@
     "title": "Log in to play",
     "subtitle": "Save your streak and get on the leaderboard.",
     "google": "Continue with Google",
-    "or": "or",
-    "emailLabel": "Email",
-    "emailPlaceholder": "you@example.com",
-    "sendLink": "Email me a login link",
-    "sending": "Sending…",
-    "sent": "Check your inbox. We sent a login link to {email}.",
-    "error": "Something went wrong. Please try again."
+    "notConfigured": "Google login isn't set up yet. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to the environment."
   },
   "dashboard": {
     "welcome": "Welcome back, {name}",
